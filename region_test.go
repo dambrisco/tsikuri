@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/dambrisco/tsikuri/internal/match"
+	"github.com/dambrisco/tsikuri/match"
 	"github.com/dambrisco/tsikuri/tsikuritest"
 )
 

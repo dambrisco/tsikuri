@@ -3,8 +3,8 @@
 package tsikuri
 
 import (
-	"github.com/dambrisco/tsikuri/internal/match"
-	"github.com/dambrisco/tsikuri/internal/platform"
+	"github.com/dambrisco/tsikuri/match"
+	"github.com/dambrisco/tsikuri/platform"
 )
 
 // DefaultBackends returns the default backends for Windows.

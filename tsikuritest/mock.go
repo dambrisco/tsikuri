@@ -3,8 +3,6 @@ package tsikuritest
 import (
 	"image"
 	"sync"
-
-	"github.com/dambrisco/tsikuri/backend"
 )
 
 // MockCapture records capture calls and returns pre-configured images.
@@ -71,7 +69,7 @@ type MockInput struct {
 // MockClick records a click event.
 type MockClick struct {
 	X, Y   int
-	Button backend.MouseButton
+	Button int
 	Double bool
 }
 
@@ -88,28 +86,26 @@ func NewMockInput() *MockInput {
 	return &MockInput{}
 }
 
-func (m *MockInput) MouseMove(x, y int) error   { return nil }
+func (m *MockInput) MouseMove(x, y int) error { return nil }
 
-func (m *MockInput) MouseClick(x, y int, button backend.MouseButton) error {
+func (m *MockInput) MouseClick(x, y int, button int) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Clicks = append(m.Clicks, MockClick{X: x, Y: y, Button: button})
 	return nil
 }
 
-func (m *MockInput) MouseDoubleClick(x, y int, button backend.MouseButton) error {
+func (m *MockInput) MouseDoubleClick(x, y int, button int) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Clicks = append(m.Clicks, MockClick{X: x, Y: y, Button: button, Double: true})
 	return nil
 }
 
-func (m *MockInput) MouseDown(button backend.MouseButton) error { return nil }
-func (m *MockInput) MouseUp(button backend.MouseButton) error   { return nil }
-func (m *MockInput) Scroll(x, y int, direction backend.ScrollDirection, amount int) error {
-	return nil
-}
-func (m *MockInput) DragDrop(fromX, fromY, toX, toY int) error { return nil }
+func (m *MockInput) MouseDown(button int) error                       { return nil }
+func (m *MockInput) MouseUp(button int) error                         { return nil }
+func (m *MockInput) Scroll(x, y int, direction int, amount int) error { return nil }
+func (m *MockInput) DragDrop(fromX, fromY, toX, toY int) error       { return nil }
 
 func (m *MockInput) TypeText(text string) error {
 	m.mu.Lock()

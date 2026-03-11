@@ -6,11 +6,18 @@ import (
 	"runtime"
 	"sort"
 	"sync"
-
-	"github.com/dambrisco/tsikuri/backend"
 )
 
-// Matcher implements backend.MatchBackend using normalized cross-correlation,
+// Result represents a single template match result.
+type Result struct {
+	// Score is the similarity score between 0.0 and 1.0.
+	Score float64
+
+	// Rect is the bounding rectangle of the match in the haystack image.
+	Rect image.Rectangle
+}
+
+// Matcher performs image template matching using normalized cross-correlation,
 // with a fallback to normalized SSD for uniform templates.
 type Matcher struct{}
 
@@ -20,7 +27,7 @@ func New() *Matcher {
 }
 
 // FindBest finds the single best match of needle in haystack.
-func (m *Matcher) FindBest(haystack, needle image.Image, minScore float64) (*backend.MatchResult, error) {
+func (m *Matcher) FindBest(haystack, needle image.Image, minScore float64) (*Result, error) {
 	hGray := ToGray(haystack)
 	nGray := ToGray(needle)
 
@@ -46,7 +53,7 @@ func (m *Matcher) FindBest(haystack, needle image.Image, minScore float64) (*bac
 		return nil, nil
 	}
 
-	return &backend.MatchResult{
+	return &Result{
 		Score: bestScore,
 		Rect: image.Rect(
 			hBounds.Min.X+bestX,
@@ -58,7 +65,7 @@ func (m *Matcher) FindBest(haystack, needle image.Image, minScore float64) (*bac
 }
 
 // FindAll finds all non-overlapping matches with score >= minScore.
-func (m *Matcher) FindAll(haystack, needle image.Image, minScore float64) ([]backend.MatchResult, error) {
+func (m *Matcher) FindAll(haystack, needle image.Image, minScore float64) ([]Result, error) {
 	hGray := ToGray(haystack)
 	nGray := ToGray(needle)
 
@@ -86,7 +93,7 @@ func (m *Matcher) FindAll(haystack, needle image.Image, minScore float64) ([]bac
 	})
 
 	// Non-maximum suppression
-	var results []backend.MatchResult
+	var results []Result
 	used := make([]bool, len(all))
 
 	for i, c := range all {
@@ -99,7 +106,7 @@ func (m *Matcher) FindAll(haystack, needle image.Image, minScore float64) ([]bac
 			hBounds.Min.X+c.x+tw,
 			hBounds.Min.Y+c.y+th,
 		)
-		results = append(results, backend.MatchResult{Score: c.score, Rect: r})
+		results = append(results, Result{Score: c.score, Rect: r})
 
 		for j := i + 1; j < len(all); j++ {
 			if used[j] {
@@ -131,8 +138,6 @@ type scoreFunc func(x, y int) float64
 // makeScorer returns the appropriate scoring function based on template uniformity.
 func makeScorer(hGray, nGray [][]float64, tw, th int, tMean, tStd float64, uniform bool) scoreFunc {
 	if uniform {
-		// For uniform templates, use normalized SSD:
-		// score = 1 - sqrt(mean_squared_error) where MSE is relative to the template mean
 		return func(x, y int) float64 {
 			return ssdScore(hGray, tw, th, x, y, tMean)
 		}
@@ -158,7 +163,6 @@ func numWorkers(searchH int) int {
 	return n
 }
 
-// parallelBest finds the single best scoring position.
 func parallelBest(searchW, searchH int, scorer scoreFunc) (bestScore float64, bestX, bestY int) {
 	nw := numWorkers(searchH)
 	results := make([]candidate, nw)
@@ -199,7 +203,6 @@ func parallelBest(searchW, searchH int, scorer scoreFunc) (bestScore float64, be
 	return
 }
 
-// parallelCollect finds all positions with score >= minScore.
 func parallelCollect(searchW, searchH int, minScore float64, scorer scoreFunc) []candidate {
 	nw := numWorkers(searchH)
 	workerResults := make([][]candidate, nw)
@@ -236,7 +239,6 @@ func parallelCollect(searchW, searchH int, minScore float64, scorer scoreFunc) [
 	return all
 }
 
-// nccAt computes the NCC score at position (ox, oy) in the haystack.
 func nccAt(haystack, needle [][]float64, ox, oy, tw, th int, tMean, tStd float64) float64 {
 	var hSum float64
 	for y := 0; y < th; y++ {
@@ -259,7 +261,6 @@ func nccAt(haystack, needle [][]float64, ox, oy, tw, th int, tMean, tStd float64
 
 	hStd := math.Sqrt(hVar / n)
 	if hStd < 1e-10 {
-		// Haystack patch is also uniform — check if they match
 		if math.Abs(hMean-tMean) < 0.01 {
 			return 1.0
 		}
@@ -269,8 +270,6 @@ func nccAt(haystack, needle [][]float64, ox, oy, tw, th int, tMean, tStd float64
 	return cc / (n * hStd * tStd)
 }
 
-// ssdScore computes a similarity score for a uniform template using
-// normalized sum of squared differences. Returns 1.0 for a perfect match.
 func ssdScore(haystack [][]float64, tw, th, ox, oy int, tMean float64) float64 {
 	n := float64(tw * th)
 	var ssd float64
@@ -280,13 +279,10 @@ func ssdScore(haystack [][]float64, tw, th, ox, oy int, tMean float64) float64 {
 			ssd += d * d
 		}
 	}
-	// Normalize: max possible SSD per pixel is 1.0 (when comparing 0 and 1)
 	mse := ssd / n
-	// Convert to similarity: 1.0 = perfect, 0.0 = worst
 	return 1.0 - math.Sqrt(mse)
 }
 
-// templateStats computes the mean and standard deviation of the template.
 func templateStats(tmpl [][]float64, w, h int) (mean, std float64) {
 	n := float64(w * h)
 	var sum float64

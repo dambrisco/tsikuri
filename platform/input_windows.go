@@ -9,29 +9,26 @@ import (
 	"time"
 	"unicode/utf16"
 	"unsafe"
-
-	"github.com/dambrisco/tsikuri/backend"
 )
 
 var (
-	procSendInput       = user32.NewProc("SendInput")
-	procSetCursorPos    = user32.NewProc("SetCursorPos")
-	procGetCursorPos    = user32.NewProc("GetCursorPos")
-	procOpenClipboard   = user32.NewProc("OpenClipboard")
-	procCloseClipboard  = user32.NewProc("CloseClipboard")
-	procEmptyClipboard  = user32.NewProc("EmptyClipboard")
+	procSendInput        = user32.NewProc("SendInput")
+	procSetCursorPos     = user32.NewProc("SetCursorPos")
+	procGetCursorPos     = user32.NewProc("GetCursorPos")
+	procOpenClipboard    = user32.NewProc("OpenClipboard")
+	procCloseClipboard   = user32.NewProc("CloseClipboard")
+	procEmptyClipboard   = user32.NewProc("EmptyClipboard")
 	procSetClipboardData = user32.NewProc("SetClipboardData")
-	kernel32            = syscall.NewLazyDLL("kernel32.dll")
-	procGlobalAlloc     = kernel32.NewProc("GlobalAlloc")
-	procGlobalLock      = kernel32.NewProc("GlobalLock")
-	procGlobalUnlock    = kernel32.NewProc("GlobalUnlock")
+	kernel32             = syscall.NewLazyDLL("kernel32.dll")
+	procGlobalAlloc      = kernel32.NewProc("GlobalAlloc")
+	procGlobalLock       = kernel32.NewProc("GlobalLock")
+	procGlobalUnlock     = kernel32.NewProc("GlobalUnlock")
 )
 
 const (
 	inputMouse    = 0
 	inputKeyboard = 1
 
-	mousefMove       = 0x0001
 	mousefLeftDown   = 0x0002
 	mousefLeftUp     = 0x0004
 	mousefRightDown  = 0x0008
@@ -40,24 +37,34 @@ const (
 	mousefMiddleUp   = 0x0040
 	mousefWheel      = 0x0800
 	mousefHWheel     = 0x1000
-	mousefAbsolute   = 0x8000
 
-	keybdfKeyUp  = 0x0002
+	keybdfKeyUp   = 0x0002
 	keybdfUnicode = 0x0004
 
 	wheelDelta = 120
 
 	cfUnicodeText = 13
 	gmemMoveable  = 0x0002
+
+	// Mouse button constants matching tsikuri.MouseButton values.
+	btnLeft   = 0
+	btnRight  = 1
+	btnMiddle = 2
+
+	// Scroll direction constants matching tsikuri.ScrollDirection values.
+	scrollUp    = 0
+	scrollDown  = 1
+	scrollLeft  = 2
+	scrollRight = 3
 )
 
 type mouseInput struct {
 	typ uint32
 	mi  struct {
-		dx, dy    int32
-		mouseData uint32
-		dwFlags   uint32
-		time      uint32
+		dx, dy      int32
+		mouseData   uint32
+		dwFlags     uint32
+		time        uint32
 		dwExtraInfo uintptr
 	}
 }
@@ -73,10 +80,10 @@ type keybdInput struct {
 	}
 }
 
-// WindowsInput implements InputBackend using Win32 SendInput.
+// WindowsInput implements input simulation using Win32 SendInput.
 type WindowsInput struct{}
 
-// NewInput creates a new WindowsInput backend.
+// NewInput creates a new WindowsInput.
 func NewInput() *WindowsInput {
 	return &WindowsInput{}
 }
@@ -89,7 +96,7 @@ func (w *WindowsInput) MouseMove(x, y int) error {
 	return nil
 }
 
-func (w *WindowsInput) MouseClick(x, y int, button backend.MouseButton) error {
+func (w *WindowsInput) MouseClick(x, y int, button int) error {
 	if err := w.MouseMove(x, y); err != nil {
 		return err
 	}
@@ -110,7 +117,7 @@ func (w *WindowsInput) MouseClick(x, y int, button backend.MouseButton) error {
 	return nil
 }
 
-func (w *WindowsInput) MouseDoubleClick(x, y int, button backend.MouseButton) error {
+func (w *WindowsInput) MouseDoubleClick(x, y int, button int) error {
 	if err := w.MouseClick(x, y, button); err != nil {
 		return err
 	}
@@ -118,7 +125,7 @@ func (w *WindowsInput) MouseDoubleClick(x, y int, button backend.MouseButton) er
 	return w.MouseClick(x, y, button)
 }
 
-func (w *WindowsInput) MouseDown(button backend.MouseButton) error {
+func (w *WindowsInput) MouseDown(button int) error {
 	down, _ := buttonFlags(button)
 	input := mouseInput{typ: inputMouse}
 	input.mi.dwFlags = down
@@ -127,7 +134,7 @@ func (w *WindowsInput) MouseDown(button backend.MouseButton) error {
 	return nil
 }
 
-func (w *WindowsInput) MouseUp(button backend.MouseButton) error {
+func (w *WindowsInput) MouseUp(button int) error {
 	_, up := buttonFlags(button)
 	input := mouseInput{typ: inputMouse}
 	input.mi.dwFlags = up
@@ -136,7 +143,7 @@ func (w *WindowsInput) MouseUp(button backend.MouseButton) error {
 	return nil
 }
 
-func (w *WindowsInput) Scroll(x, y int, direction backend.ScrollDirection, amount int) error {
+func (w *WindowsInput) Scroll(x, y int, direction int, amount int) error {
 	if err := w.MouseMove(x, y); err != nil {
 		return err
 	}
@@ -144,16 +151,16 @@ func (w *WindowsInput) Scroll(x, y int, direction backend.ScrollDirection, amoun
 
 	input := mouseInput{typ: inputMouse}
 	switch direction {
-	case backend.ScrollUp:
+	case scrollUp:
 		input.mi.dwFlags = mousefWheel
 		input.mi.mouseData = uint32(amount * wheelDelta)
-	case backend.ScrollDown:
+	case scrollDown:
 		input.mi.dwFlags = mousefWheel
 		input.mi.mouseData = uint32(-amount * wheelDelta)
-	case backend.ScrollLeft:
+	case scrollLeft:
 		input.mi.dwFlags = mousefHWheel
 		input.mi.mouseData = uint32(-amount * wheelDelta)
-	case backend.ScrollRight:
+	case scrollRight:
 		input.mi.dwFlags = mousefHWheel
 		input.mi.mouseData = uint32(amount * wheelDelta)
 	}
@@ -169,12 +176,11 @@ func (w *WindowsInput) DragDrop(fromX, fromY, toX, toY int) error {
 	}
 	time.Sleep(50 * time.Millisecond)
 
-	if err := w.MouseDown(backend.ButtonLeft); err != nil {
+	if err := w.MouseDown(btnLeft); err != nil {
 		return err
 	}
 	time.Sleep(50 * time.Millisecond)
 
-	// Move in steps for smooth dragging
 	steps := 20
 	for i := 1; i <= steps; i++ {
 		x := fromX + (toX-fromX)*i/steps
@@ -186,21 +192,19 @@ func (w *WindowsInput) DragDrop(fromX, fromY, toX, toY int) error {
 	}
 
 	time.Sleep(50 * time.Millisecond)
-	return w.MouseUp(backend.ButtonLeft)
+	return w.MouseUp(btnLeft)
 }
 
 func (w *WindowsInput) TypeText(text string) error {
 	for _, ch := range text {
 		encoded := utf16.Encode([]rune{ch})
 		for _, u := range encoded {
-			// Key down
 			input := keybdInput{typ: inputKeyboard}
 			input.ki.wScan = u
 			input.ki.dwFlags = keybdfUnicode
 			size := unsafe.Sizeof(input)
 			procSendInput.Call(1, uintptr(unsafe.Pointer(&input)), uintptr(size))
 
-			// Key up
 			input.ki.dwFlags = keybdfUnicode | keybdfKeyUp
 			procSendInput.Call(1, uintptr(unsafe.Pointer(&input)), uintptr(size))
 
@@ -241,7 +245,6 @@ func (w *WindowsInput) KeyPress(key string, modifiers ...string) error {
 			return err
 		}
 	}
-
 	if err := w.KeyDown(key); err != nil {
 		return err
 	}
@@ -249,7 +252,6 @@ func (w *WindowsInput) KeyPress(key string, modifiers ...string) error {
 	if err := w.KeyUp(key); err != nil {
 		return err
 	}
-
 	for i := len(modifiers) - 1; i >= 0; i-- {
 		if err := w.KeyUp(modifiers[i]); err != nil {
 			return err
@@ -267,7 +269,6 @@ func (w *WindowsInput) SetClipboard(text string) error {
 
 	procEmptyClipboard.Call()
 
-	// Convert to UTF-16 with null terminator
 	utf16Text := utf16.Encode([]rune(text + "\x00"))
 	size := len(utf16Text) * 2
 
@@ -294,11 +295,11 @@ func (w *WindowsInput) PasteClipboard() error {
 	return w.KeyPress("v", "ctrl")
 }
 
-func buttonFlags(button backend.MouseButton) (down, up uint32) {
+func buttonFlags(button int) (down, up uint32) {
 	switch button {
-	case backend.ButtonRight:
+	case btnRight:
 		return mousefRightDown, mousefRightUp
-	case backend.ButtonMiddle:
+	case btnMiddle:
 		return mousefMiddleDown, mousefMiddleUp
 	default:
 		return mousefLeftDown, mousefLeftUp
@@ -346,7 +347,7 @@ func keyToVK(key string) uint16 {
 	case "shift":
 		return 0x10
 	case "meta":
-		return 0x5B // Left Windows key
+		return 0x5B
 	case "f1":
 		return 0x70
 	case "f2":
@@ -424,7 +425,6 @@ func keyToVK(key string) uint16 {
 	case "z":
 		return 0x5A
 	default:
-		// Single character keys
 		if len(key) == 1 {
 			ch := key[0]
 			if ch >= '0' && ch <= '9' {

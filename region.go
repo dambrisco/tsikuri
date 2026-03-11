@@ -6,15 +6,54 @@ import (
 	"image"
 	"time"
 
-	"github.com/dambrisco/tsikuri/backend"
+	"github.com/dambrisco/tsikuri/match"
 )
+
+// Capturer captures screenshots from the display.
+type Capturer interface {
+	CaptureScreen(monitor int) (*image.RGBA, error)
+	CaptureRegion(x, y, w, h int) (*image.RGBA, error)
+	NumScreens() (int, error)
+	ScreenBounds(monitor int) (image.Rectangle, error)
+}
+
+// Matcher performs image template matching.
+type Matcher interface {
+	FindBest(haystack, needle image.Image, minScore float64) (*match.Result, error)
+	FindAll(haystack, needle image.Image, minScore float64) ([]match.Result, error)
+}
+
+// Inputter simulates mouse and keyboard input.
+// Mouse button and scroll direction parameters use int constants
+// matching the MouseButton and ScrollDirection values in this package.
+type Inputter interface {
+	MouseMove(x, y int) error
+	MouseClick(x, y int, button int) error
+	MouseDoubleClick(x, y int, button int) error
+	MouseDown(button int) error
+	MouseUp(button int) error
+	Scroll(x, y int, direction int, amount int) error
+	DragDrop(fromX, fromY, toX, toY int) error
+	TypeText(text string) error
+	KeyDown(key string) error
+	KeyUp(key string) error
+	KeyPress(key string, modifiers ...string) error
+	SetClipboard(text string) error
+	PasteClipboard() error
+}
+
+// OCREngine extracts text from images.
+type OCREngine interface {
+	ReadText(img image.Image) (string, error)
+	Close() error
+}
 
 // Backends holds the pluggable backend implementations.
 type Backends struct {
-	Capture backend.CaptureBackend
-	Match   backend.MatchBackend
-	Input   backend.InputBackend
-	OCR     backend.OCRBackend
+	Capture Capturer
+	Match   Matcher
+	Input   Inputter
+	OCR     OCREngine
 }
 
 // Settings controls Region behavior.
@@ -151,7 +190,6 @@ func (r *Region) Wait(ctx context.Context, pat *Pattern) (*Match, error) {
 	ticker := time.NewTicker(r.settings.ScanRate)
 	defer ticker.Stop()
 
-	// Try immediately first
 	m, err := r.Find(ctx, pat)
 	if err == nil {
 		return m, nil
@@ -184,7 +222,6 @@ func (r *Region) WaitVanish(ctx context.Context, pat *Pattern) error {
 	ticker := time.NewTicker(r.settings.ScanRate)
 	defer ticker.Stop()
 
-	// Check immediately
 	m := r.Exists(pat)
 	if m == nil {
 		return nil
@@ -230,7 +267,6 @@ func (r *Region) FindBest(ctx context.Context, pats ...*Pattern) (*Match, int, e
 }
 
 // FindAny finds matches for any of the given patterns.
-// Returns all found matches.
 func (r *Region) FindAny(ctx context.Context, pats ...*Pattern) ([]*Match, error) {
 	var found []*Match
 	for _, pat := range pats {
@@ -257,7 +293,7 @@ func (r *Region) Click(ctx context.Context, targets ...Target) error {
 	if r.backends == nil || r.backends.Input == nil {
 		return ErrNoInput
 	}
-	return r.backends.Input.MouseClick(loc.X, loc.Y, backend.ButtonLeft)
+	return r.backends.Input.MouseClick(loc.X, loc.Y, int(ButtonLeft))
 }
 
 // DoubleClick double-clicks the target.
@@ -269,7 +305,7 @@ func (r *Region) DoubleClick(ctx context.Context, targets ...Target) error {
 	if r.backends == nil || r.backends.Input == nil {
 		return ErrNoInput
 	}
-	return r.backends.Input.MouseDoubleClick(loc.X, loc.Y, backend.ButtonLeft)
+	return r.backends.Input.MouseDoubleClick(loc.X, loc.Y, int(ButtonLeft))
 }
 
 // RightClick right-clicks the target.
@@ -281,7 +317,7 @@ func (r *Region) RightClick(ctx context.Context, targets ...Target) error {
 	if r.backends == nil || r.backends.Input == nil {
 		return ErrNoInput
 	}
-	return r.backends.Input.MouseClick(loc.X, loc.Y, backend.ButtonRight)
+	return r.backends.Input.MouseClick(loc.X, loc.Y, int(ButtonRight))
 }
 
 // Hover moves the mouse to the target without clicking.
@@ -318,7 +354,7 @@ func (r *Region) Wheel(direction ScrollDirection, steps int) error {
 		return ErrNoInput
 	}
 	center := r.center()
-	return r.backends.Input.Scroll(center.X, center.Y, backend.ScrollDirection(direction), steps)
+	return r.backends.Input.Scroll(center.X, center.Y, int(direction), steps)
 }
 
 // --- Keyboard operations ---
@@ -329,7 +365,6 @@ func (r *Region) Type(text string, modifiers ...Key) error {
 		return ErrNoInput
 	}
 
-	// Hold modifiers
 	for _, mod := range modifiers {
 		if err := r.backends.Input.KeyDown(string(mod)); err != nil {
 			return err
@@ -338,7 +373,6 @@ func (r *Region) Type(text string, modifiers ...Key) error {
 
 	err := r.backends.Input.TypeText(text)
 
-	// Release modifiers in reverse order
 	for i := len(modifiers) - 1; i >= 0; i-- {
 		if rerr := r.backends.Input.KeyUp(string(modifiers[i])); rerr != nil && err == nil {
 			err = rerr
@@ -452,8 +486,7 @@ func (r *Region) Below(height int) *Region {
 	}
 }
 
-// Left returns a new Region to the left of this one with the given width.
-// If used on a Screen, returns the leftmost portion of this region.
+// Left returns a new Region covering the leftmost portion of this region.
 func (r *Region) Left(width int) *Region {
 	return &Region{
 		Bounds: image.Rect(
@@ -467,8 +500,7 @@ func (r *Region) Left(width int) *Region {
 	}
 }
 
-// Right returns a new Region to the right of this one with the given width.
-// If used on a Screen, returns the rightmost portion of this region.
+// Right returns a new Region covering the rightmost portion of this region.
 func (r *Region) Right(width int) *Region {
 	return &Region{
 		Bounds: image.Rect(
@@ -486,8 +518,6 @@ func (r *Region) Right(width int) *Region {
 
 // Highlight draws a rectangle around this region for visual debugging.
 func (r *Region) Highlight(d time.Duration) error {
-	// Highlight is a best-effort operation — requires platform support.
-	// For now this is a no-op; platform implementations can be added.
 	_ = d
 	return nil
 }
@@ -523,7 +553,7 @@ func (r *Region) resolvePattern(pat *Pattern) *Pattern {
 	return pat
 }
 
-func (r *Region) matchFromResult(result *backend.MatchResult, pat *Pattern) *Match {
+func (r *Region) matchFromResult(result *match.Result, pat *Pattern) *Match {
 	matchRegion := &Region{
 		Bounds:   result.Rect,
 		backends: r.backends,

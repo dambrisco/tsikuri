@@ -2,7 +2,7 @@
 
 package tsikuri
 
-import "github.com/dambrisco/tsikuri/internal/match"
+import "github.com/dambrisco/tsikuri/match"
 
 // DefaultBackends returns minimal backends for unsupported platforms.
 // Only the pure-Go matcher is available; capture and input backends

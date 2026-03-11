@@ -7,14 +7,25 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/dambrisco/tsikuri/backend"
 )
 
-// LinuxInput implements InputBackend using xdotool.
+const (
+	// Mouse button constants matching tsikuri.MouseButton values.
+	btnLeft   = 0
+	btnRight  = 1
+	btnMiddle = 2
+
+	// Scroll direction constants matching tsikuri.ScrollDirection values.
+	scrollUp    = 0
+	scrollDown  = 1
+	scrollLeft  = 2
+	scrollRight = 3
+)
+
+// LinuxInput implements input simulation using xdotool.
 type LinuxInput struct{}
 
-// NewInput creates a new LinuxInput backend.
+// NewInput creates a new LinuxInput.
 func NewInput() *LinuxInput {
 	return &LinuxInput{}
 }
@@ -23,7 +34,7 @@ func (l *LinuxInput) MouseMove(x, y int) error {
 	return exec.Command("xdotool", "mousemove", strconv.Itoa(x), strconv.Itoa(y)).Run()
 }
 
-func (l *LinuxInput) MouseClick(x, y int, button backend.MouseButton) error {
+func (l *LinuxInput) MouseClick(x, y int, button int) error {
 	if err := l.MouseMove(x, y); err != nil {
 		return err
 	}
@@ -32,7 +43,7 @@ func (l *LinuxInput) MouseClick(x, y int, button backend.MouseButton) error {
 	return exec.Command("xdotool", "click", btn).Run()
 }
 
-func (l *LinuxInput) MouseDoubleClick(x, y int, button backend.MouseButton) error {
+func (l *LinuxInput) MouseDoubleClick(x, y int, button int) error {
 	if err := l.MouseMove(x, y); err != nil {
 		return err
 	}
@@ -41,17 +52,17 @@ func (l *LinuxInput) MouseDoubleClick(x, y int, button backend.MouseButton) erro
 	return exec.Command("xdotool", "click", "--repeat", "2", "--delay", "50", btn).Run()
 }
 
-func (l *LinuxInput) MouseDown(button backend.MouseButton) error {
+func (l *LinuxInput) MouseDown(button int) error {
 	btn := linuxButton(button)
 	return exec.Command("xdotool", "mousedown", btn).Run()
 }
 
-func (l *LinuxInput) MouseUp(button backend.MouseButton) error {
+func (l *LinuxInput) MouseUp(button int) error {
 	btn := linuxButton(button)
 	return exec.Command("xdotool", "mouseup", btn).Run()
 }
 
-func (l *LinuxInput) Scroll(x, y int, direction backend.ScrollDirection, amount int) error {
+func (l *LinuxInput) Scroll(x, y int, direction int, amount int) error {
 	if err := l.MouseMove(x, y); err != nil {
 		return err
 	}
@@ -59,13 +70,13 @@ func (l *LinuxInput) Scroll(x, y int, direction backend.ScrollDirection, amount 
 
 	var btn string
 	switch direction {
-	case backend.ScrollUp:
+	case scrollUp:
 		btn = "4"
-	case backend.ScrollDown:
+	case scrollDown:
 		btn = "5"
-	case backend.ScrollLeft:
+	case scrollLeft:
 		btn = "6"
-	case backend.ScrollRight:
+	case scrollRight:
 		btn = "7"
 	}
 
@@ -77,7 +88,7 @@ func (l *LinuxInput) DragDrop(fromX, fromY, toX, toY int) error {
 		return err
 	}
 	time.Sleep(50 * time.Millisecond)
-	if err := l.MouseDown(backend.ButtonLeft); err != nil {
+	if err := l.MouseDown(btnLeft); err != nil {
 		return err
 	}
 	time.Sleep(50 * time.Millisecond)
@@ -85,7 +96,7 @@ func (l *LinuxInput) DragDrop(fromX, fromY, toX, toY int) error {
 		return err
 	}
 	time.Sleep(50 * time.Millisecond)
-	return l.MouseUp(backend.ButtonLeft)
+	return l.MouseUp(btnLeft)
 }
 
 func (l *LinuxInput) TypeText(text string) error {
@@ -121,11 +132,11 @@ func (l *LinuxInput) PasteClipboard() error {
 	return l.KeyPress("v", "ctrl")
 }
 
-func linuxButton(button backend.MouseButton) string {
+func linuxButton(button int) string {
 	switch button {
-	case backend.ButtonRight:
+	case btnRight:
 		return "3"
-	case backend.ButtonMiddle:
+	case btnMiddle:
 		return "2"
 	default:
 		return "1"
