@@ -44,8 +44,14 @@ func TestObserverOnAppear(t *testing.T) {
 			needleImg.Set(x, y, color.RGBA{R: v, G: 255 - v, B: v / 2, A: 255})
 		}
 	}
-	f, _ := os.Create(needlePath)
-	png.Encode(f, needleImg)
+	f, err := os.Create(needlePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := png.Encode(f, needleImg); err != nil {
+		f.Close()
+		t.Fatal(err)
+	}
 	f.Close()
 
 	var appeared int32
@@ -56,7 +62,9 @@ func TestObserverOnAppear(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 
-	go obs.Run(ctx)
+	go func() {
+		_ = obs.Run(ctx)
+	}()
 
 	// After a short delay, make the target appear
 	time.Sleep(50 * time.Millisecond)
